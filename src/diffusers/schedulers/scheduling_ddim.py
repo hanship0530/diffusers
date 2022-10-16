@@ -119,15 +119,7 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         clip_sample: bool = True,
         set_alpha_to_one: bool = True,
         steps_offset: int = 0,
-        **kwargs,
     ):
-        deprecate(
-            "tensor_format",
-            "0.5.0",
-            "If you're running your code in PyTorch, you can safely remove this argument.",
-            take_from=kwargs,
-        )
-
         if trained_betas is not None:
             self.betas = torch.from_numpy(trained_betas)
         elif beta_schedule == "linear":
@@ -192,7 +184,7 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
                 the number of diffusion steps used when generating samples with a pre-trained model.
         """
         deprecated_offset = deprecate(
-            "offset", "0.5.0", "Please pass `steps_offset` to `__init__` instead.", take_from=kwargs
+            "offset", "0.7.0", "Please pass `steps_offset` to `__init__` instead.", take_from=kwargs
         )
         offset = deprecated_offset or self.config.steps_offset
 
@@ -283,8 +275,9 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
 
         if eta > 0:
+            # randn_like does not support generator https://github.com/pytorch/pytorch/issues/27072
             device = model_output.device if torch.is_tensor(model_output) else "cpu"
-            noise = torch.randn(model_output.shape, generator=generator).to(device)
+            noise = torch.randn(model_output.shape, dtype=model_output.dtype, generator=generator).to(device)
             variance = self._get_variance(timestep, prev_timestep) ** (0.5) * eta * noise
 
             prev_sample = prev_sample + variance
@@ -300,11 +293,9 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         noise: torch.FloatTensor,
         timesteps: torch.IntTensor,
     ) -> torch.FloatTensor:
-        if self.alphas_cumprod.device != original_samples.device:
-            self.alphas_cumprod = self.alphas_cumprod.to(original_samples.device)
-
-        if timesteps.device != original_samples.device:
-            timesteps = timesteps.to(original_samples.device)
+        # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
+        self.alphas_cumprod = self.alphas_cumprod.to(device=original_samples.device, dtype=original_samples.dtype)
+        timesteps = timesteps.to(original_samples.device)
 
         sqrt_alpha_prod = self.alphas_cumprod[timesteps] ** 0.5
         sqrt_alpha_prod = sqrt_alpha_prod.flatten()
